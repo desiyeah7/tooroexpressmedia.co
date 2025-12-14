@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Owner Dashboard - Tooro Express Media</title>
+<style>
+body { margin:0; font-family: Arial,sans-serif; background: #111; color:#fff; }
+#loginBox { text-align:center; margin-top:50px; }
+#ownerPanel { display:none; padding:20px; max-width:900px; margin:auto; }
+input, button { padding:10px; margin:5px; border-radius:5px; border:none; }
+button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
+.video-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:black; overflow:hidden; border-radius:12px; margin-top:20px; }
+.bg-media { position:absolute; width:100%; height:100%; object-fit:cover; z-index:1; display:none; }
+#liveVideo { position:absolute; bottom:15px; right:15px; width:25%; border-radius:10px; z-index:5; border:2px solid #4caf50; background:black; }
+#logoOverlay { position:absolute; top:10px; left:10px; width:70px; z-index:6; }
+.title-bar { position:absolute; top:0; width:100%; background:rgba(0,0,0,0.65); overflow:hidden; z-index:12; height:40px; display:flex; align-items:center; }
+#programTitle { white-space:nowrap; padding-left:100%; animation:scrollTitle 15s linear infinite; color:#b7ffb7; font-weight:bold; font-size:18px; }
+@keyframes scrollTitle { from { transform:translateX(0); } to { transform:translateX(-100%); } }
+#recordedVideos { margin-top:20px; display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:10px; }
+.video-card { background: rgba(0,0,0,0.6); padding:10px; border-radius:10px; }
+#liveIndicator { width:15px; height:15px; background:red; border-radius:50%; display:inline-block; margin-left:10px; vertical-align:middle; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="loginBox">
+  <h2>Owner Login</h2>
+  <input type="email" id="email" placeholder="Email" />
+  <input type="password" id="password" placeholder="Password" />
+  <button onclick="login()">Login</button>
+</div>
+
+<!-- Owner Panel -->
+<div id="ownerPanel">
+  <h1>Live Stream Dashboard</h1>
+  <button onclick="auth.signOut()">Logout</button>
+  <span id="liveIndicator" title="Live"></span>
+
+  <!-- Video Preview & Logo -->
+  <div class="video-wrapper">
+    <div class="title-bar"><div id="programTitle">Program Title</div></div>
+    <img src="mark.jpg" id="logoOverlay">
+    <img id="bgImage" class="bg-media">
+    <video id="bgVideo" class="bg-media" autoplay muted loop></video>
+    <video id="liveVideo" autoplay playsinline muted></video>
+  </div>
+
+  <!-- Program Title -->
+  <div style="margin-top:10px;">
+    <input id="titleInput" placeholder="Enter program title">
+    <button onclick="setTitle()">Set Title</button>
+  </div>
+
+  <!-- Background Media -->
+  <div style="margin-top:10px;">
+    <input type="file" accept="image/*,video/*" onchange="setBackground(this)">
+    <button onclick="clearBackground()">Remove Background</button>
+  </div>
+
+  <!-- Recorded Videos -->
+  <h2>Recorded Videos</h2>
+  <input type="file" accept="video/*" onchange="uploadVideo(this)">
+  <div id="recordedVideos"></div>
+
+  <!-- Change Password -->
+  <div style="margin-top:20px;">
+    <input type="password" id="newPassword" placeholder="New Password">
+    <button onclick="changePassword()">Change Password</button>
+  </div>
+</div>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDyIloGwy7UzZUAqodgZNvNCiBou02RbGQ",
+  authDomain: "livestream-trial.firebaseapp.com",
+  databaseURL: "https://livestream-trial-default-rtdb.firebaseio.com",
+  projectId: "livestream-trial",
+  storageBucket: "livestream-trial.appspot.com",
+  messagingSenderId: "448193920796",
+  appId: "1:448193920796:web:019cf2b7295e0e7d7c04d9"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+const storage = firebase.storage();
+
+// Login
+function login() {
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+  auth.signInWithEmailAndPassword(email,password)
+    .then(()=>{ document.getElementById("loginBox").style.display="none"; document.getElementById("ownerPanel").style.display="block"; startLocalStream(); })
+    .catch(err=>alert(err.message));
+}
+
+// Auth state
+auth.onAuthStateChanged(user=>{
+  if(user){ document.getElementById("loginBox").style.display="none"; document.getElementById("ownerPanel").style.display="block"; startLocalStream(); } 
+  else{ document.getElementById("loginBox").style.display="block"; document.getElementById("ownerPanel").style.display="none"; }
+});
+
+// Change password
+function changePassword(){
+  const user = auth.currentUser;
+  const newPassword = document.getElementById("newPassword").value;
+  if(!newPassword) return alert("Enter a new password");
+  user.updatePassword(newPassword).then(()=>alert("Password changed successfully!")).catch(err=>alert(err.message));
+}
+
+// Program title
+function setTitle(){
+  const title = document.getElementById("titleInput").value;
+  db.ref("programTitle").set(title);
+}
+
+// Background preview + upload
+const bgVideo = document.getElementById("bgVideo");
+const bgImage = document.getElementById("bgImage");
+function setBackground(input){
+  const file = input.files[0]; if(!file) return;
+  const url = URL.createObjectURL(file); // show immediately
+  if(file.type.startsWith("video")){ bgVideo.src = url; bgVideo.style.display="block"; bgVideo.play(); bgImage.style.display="none"; }
+  else { bgImage.src = url; bgImage.style.display="block"; bgVideo.style.display="none"; }
+
+  // Upload to Firebase
+  const ref = storage.ref("background/current");
+  ref.put(file).then(()=>ref.getDownloadURL().then(remoteUrl=>{
+    db.ref("background").set({url:remoteUrl,type:file.type.startsWith("video")?"video":"image"});
+  }));
+}
+function clearBackground(){ db.ref("background").remove(); bgVideo.style.display=bgImage.style.display="none"; }
+
+// Recorded videos
+const recordedDiv = document.getElementById("recordedVideos");
+function uploadVideo(input){
+  const file = input.files[0]; if(!file) return;
+  const videoId = Date.now();
+  const ref = storage.ref(`recordedVideos/${videoId}`);
+  ref.put(file).then(()=>ref.getDownloadURL().then(url=>{
+    db.ref(`recordedVideos/${videoId}`).set({title:file.name,url:url});
+  }));
+}
+db.ref("recordedVideos").on("child_added", snap=>{
+  const data = snap.val(); const key = snap.key;
+  const card = document.createElement("div"); card.className="video-card";
+  const title = document.createElement("h4"); title.textContent=data.title; title.style.color="#a8f0a5";
+  const vid = document.createElement("video"); vid.src=data.url; vid.controls=true; vid.style.width="100%";
+  const delBtn = document.createElement("button"); delBtn.textContent="Delete"; delBtn.onclick=()=>db.ref(`recordedVideos/${key}`).remove();
+  card.appendChild(title); card.appendChild(vid); card.appendChild(delBtn);
+  recordedDiv.appendChild(card);
+});
+
+// ===== WebRTC for multiple viewers =====
+const viewersRef = db.ref("viewers");
+let localStream;
+const peerConnections = {}; // store per-viewer connections
+const liveVideo = document.getElementById("liveVideo");
+
+async function startLocalStream(){
+  localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+  liveVideo.srcObject = localStream;
+
+  // Listen for new viewers
+  viewersRef.on("child_added", async snap=>{
+    const viewerId = snap.key;
+    if(peerConnections[viewerId]) return; // already exists
+    const pc = new RTCPeerConnection();
+    peerConnections[viewerId] = pc;
+
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    pc.onicecandidate = event=>{
+      if(event.candidate){
+        db.ref(`webrtc/${viewerId}/candidates`).push(JSON.stringify(event.candidate));
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    db.ref(`webrtc/${viewerId}/offer`).set(JSON.stringify(offer));
+
+    // Listen for answer from viewer
+    db.ref(`webrtc/${viewerId}/answer`).on("value", async snap=>{
+      const answer = snap.val(); 
+      if(answer) await pc.setRemoteDescription(JSON.parse(answer));
+    });
+
+    // Listen for ICE from viewer
+    db.ref(`webrtc/${viewerId}/candidatesViewer`).on("child_added", snap=>{
+      const candidate = JSON.parse(snap.val());
+      pc.addIceCandidate(candidate);
+    });
+  });
+}
+</script>
+
+</body>
+</html>
