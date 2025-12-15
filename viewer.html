@@ -12,12 +12,11 @@ body { margin:0; font-family: Arial,sans-serif; background:#111; color:#fff; tex
 @keyframes scrollTitle { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 #liveIndicator { width:15px; height:15px; background:gray; border-radius:50%; display:inline-block; margin-left:10px; vertical-align:middle; animation: pulse 1.5s infinite; }
 @keyframes pulse { 0%,100%{ transform:scale(1);}50%{transform:scale(1.3);} }
-
 #viewerVideo { width:90%; max-width:900px; margin:20px auto; border-radius:12px; border:2px solid #4caf50; background:black; }
 #chatBox { width:90%; max-width:500px; margin:20px auto; text-align:left; }
+#messages { height:200px; overflow-y:auto; border:1px solid #555; padding:10px; margin-bottom:10px; border-radius:8px; background:#222; }
 input, button { padding:8px; margin:5px; border-radius:5px; border:none; }
 button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
-#likes { margin:10px; }
 </style>
 </head>
 <body>
@@ -31,22 +30,15 @@ button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
 
 <video id="viewerVideo" autoplay playsinline></video>
 
-<!-- Likes & Subscribe -->
-<div id="interaction">
-  <button id="likeBtn">Like 👍</button> <span id="likes">0</span>
-  <button id="subscribeBtn">Subscribe 🔔</button>
-</div>
-
-<!-- Chat -->
 <div id="chatBox">
-  <div id="messages" style="height:200px; overflow-y:auto; border:1px solid #555; padding:10px; margin-bottom:10px; border-radius:8px;"></div>
+  <div id="messages"></div>
   <input type="text" id="chatInput" placeholder="Type a message...">
   <button onclick="sendMessage()">Send</button>
 </div>
 
-<!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyDyIloGwy7UzZUAqodgZNvNCiBou02RbGQ",
@@ -59,52 +51,43 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-  const rtcConfig = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" }
-  ]
-};
 
+// STUN
+const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-// Elements
 const viewerVideo = document.getElementById("viewerVideo");
 const programTitle = document.getElementById("programTitle");
 const liveIndicator = document.getElementById("liveIndicator");
+const messagesDiv = document.getElementById("messages");
+const chatInput = document.getElementById("chatInput");
 
-// Unique viewer ID
 const viewerId = Date.now().toString();
 const viewerRef = db.ref("viewers/" + viewerId);
-viewerRef.set(true); // notify Owner
+viewerRef.set(true);
 viewerRef.onDisconnect().remove();
 
-// ===== Listen program title =====
+// Show program title
 db.ref("programTitle").on("value", snap=>{
   programTitle.textContent = snap.val() || "Welcome to Tooro Express Media Live!";
 });
 
-// ===== WebRTC =====
+// WebRTC
 const pc = new RTCPeerConnection(rtcConfig);
 
-// Listen for ICE candidates from owner
 db.ref(`webrtc/${viewerId}/candidates`).on("child_added", snap=>{
-  const candidate = JSON.parse(snap.val());
-  pc.addIceCandidate(candidate);
+  pc.addIceCandidate(JSON.parse(snap.val()));
 });
 
-// Send ICE candidates to owner
 pc.onicecandidate = event=>{
   if(event.candidate){
     db.ref(`webrtc/${viewerId}/candidatesViewer`).push(JSON.stringify(event.candidate));
   }
 };
 
-// Show remote stream
 pc.ontrack = event=>{
   viewerVideo.srcObject = event.streams[0];
 };
 
-// Listen for offer from owner
 db.ref(`webrtc/${viewerId}/offer`).on("value", async snap=>{
   const offer = snap.val();
   if(!offer) return;
@@ -114,47 +97,25 @@ db.ref(`webrtc/${viewerId}/offer`).on("value", async snap=>{
   db.ref(`webrtc/${viewerId}/answer`).set(JSON.stringify(answer));
 });
 
-// Update live indicator
 db.ref(`webrtc/${viewerId}/offer`).on("value", snap=>{
   liveIndicator.style.background = snap.val() ? "red" : "gray";
 });
 
-// ===== Likes =====
-let liked = false;
-const likesSpan = document.getElementById("likes");
-const likeBtn = document.getElementById("likeBtn");
-likeBtn.onclick = ()=>{
-  if(liked) return; // one like per viewer
-  liked = true;
-  const likeRef = db.ref("likes");
-  likeRef.transaction(current=> (current||0)+1 );
-};
-db.ref("likes").on("value", snap=>{ likesSpan.textContent = snap.val()||0; });
-
 // ===== Chat =====
 function sendMessage(){
-  const msg = document.getElementById("chatInput").value.trim();
+  const msg = chatInput.value.trim();
   if(!msg) return;
-  const msgRef = db.ref("chat").push();
-  msgRef.set({id:viewerId,text:msg});
-  document.getElementById("chatInput").value = "";
+  db.ref("chat").push({id:viewerId,text:msg});
+  chatInput.value = "";
 }
+
 db.ref("chat").on("child_added", snap=>{
   const msg = snap.val();
-  const messagesDiv = document.getElementById("messages");
   const div = document.createElement("div");
   div.textContent = msg.text;
   messagesDiv.appendChild(div);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
-
-// ===== Subscribe (placeholder) =====
-document.getElementById("subscribeBtn").onclick = ()=>{
-  alert("Thank you for subscribing!");
-};
 </script>
-
 </body>
 </html>
-
-
