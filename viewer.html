@@ -28,7 +28,7 @@ button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
   <span id="liveIndicator" title="Live"></span>
 </div>
 
-<video id="viewerVideo" autoplay playsinline muted></video>
+<video id="viewerVideo" autoplay playsinline></video> 
 
 <div id="chatBox">
   <div id="messages"></div>
@@ -43,8 +43,10 @@ button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 
 <script>
+// --- CONFIG & INITIALIZATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyDyIloGwy7UzZUAqodgZNvNCiBou02RbGQ",
   authDomain: "livestream-trial.firebaseapp.com",
@@ -56,7 +58,9 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const storage = firebase.storage();
 
+// --- DOM ELEMENTS & RTC VARIABLES ---
 const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const viewerVideo = document.getElementById("viewerVideo");
 const programTitle = document.getElementById("programTitle");
@@ -66,61 +70,108 @@ const chatInput = document.getElementById("chatInput");
 const likesSpan = document.getElementById("likes");
 const likeBtn = document.getElementById("likeBtn");
 const subscribeBtn = document.getElementById("subscribeBtn");
+const pc = new RTCPeerConnection(rtcConfig);
 
-const viewerRef = db.ref("viewers").push(); // generate stable viewer ID
+// --- VIEWER ID & SETUP ---
+// Generates a unique viewer ID and registers it
+const viewerRef = db.ref("viewers").push(); 
 const viewerId = viewerRef.key;
 viewerRef.set(true);
 viewerRef.onDisconnect().remove();
 
-const pc = new RTCPeerConnection(rtcConfig);
+// --- LIVE STATUS CHECK ---
+db.ref("isLive").on("value", snap => {
+    const isLive = snap.val();
+    liveIndicator.style.background = isLive ? "red" : "gray";
+    liveIndicator.title = isLive ? "Live" : "Offline";
+});
 
-// WebRTC
+// --- PROGRAM TITLE & BACKGROUND ---
+db.ref("programTitle").on("value", snap=> programTitle.textContent = snap.val() || "Welcome to Tooro Express Media Live!");
+
+// You may want to add logic here to display the background image/video
+// based on db.ref("background") similar to how the owner side handles it.
+
+// --- WebRTC (SIGNALING) ---
+
+// 1. Listen for OFFER from the owner
 db.ref(`webrtc/${viewerId}/offer`).on("value", async snap=>{
   const offer = snap.val();
   if(!offer) return;
+
+  // A. Set remote description (Offer)
   await pc.setRemoteDescription(JSON.parse(offer));
+
+  // B. Create Answer and set local description
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
+
+  // C. Send Answer back to the owner
   db.ref(`webrtc/${viewerId}/answer`).set(JSON.stringify(answer));
 });
 
+// 2. Send Viewer's ICE Candidates to the Owner
 pc.onicecandidate = e=>{
+  // Viewer candidates go to /webrtc/{viewerId}/candidatesViewer
   if(e.candidate) db.ref(`webrtc/${viewerId}/candidatesViewer`).push(JSON.stringify(e.candidate));
 };
 
-pc.ontrack = e=> viewerVideo.srcObject = e.streams[0];
+// 3. Receive Stream Tracks from the Owner
+pc.ontrack = e => {
+    viewerVideo.srcObject = e.streams[0];
+    // Attempt to play immediately (requires no 'muted' attribute in HTML)
+    viewerVideo.play().catch(error => {
+        console.warn("Autoplay was blocked. Viewer may need to interact with the page.", error);
+    });
+};
+
+// 4. Listen for Owner's ICE Candidates
 db.ref(`webrtc/${viewerId}/candidates`).on("child_added", snap=>{
-  pc.addIceCandidate(JSON.parse(snap.val()));
+  try {
+    pc.addIceCandidate(JSON.parse(snap.val()));
+  } catch(e) {
+    console.error("Error adding owner candidate:", e);
+  }
 });
 
-// Program title
-db.ref("programTitle").on("value", snap=> programTitle.textContent = snap.val() || "Welcome to Tooro Express Media Live!");
 
-// Chat
+// --- CHAT FUNCTIONS ---
 function sendMessage(){
+  // Added a placeholder name for the viewer, as you didn't include auth
+  const viewerName = `Viewer-${viewerId.substring(0, 4)}`;
   const msg = chatInput.value.trim();
   if(!msg) return;
-  db.ref("chat").push({id:viewerId,text:msg});
+  
+  db.ref("chat").push({
+    id: viewerId,
+    name: viewerName,
+    text: msg,
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  });
   chatInput.value = "";
 }
+
 db.ref("chat").on("child_added", snap=>{
   const msg = snap.val();
   const div = document.createElement("div");
-  div.textContent = msg.text;
+  // Updated to show a name/ID if available
+  const senderInfo = msg.name ? `[${msg.name}]: ` : '';
+  div.textContent = senderInfo + msg.text;
   messagesDiv.appendChild(div);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
 
-// Likes
+// --- LIKES ---
 let liked = false;
 likeBtn.onclick = ()=>{
-  if(liked) return;
+  // Prevents spamming the like button
+  if(liked) return; 
   liked = true;
   db.ref("likes").transaction(current=> (current||0)+1 );
 };
 db.ref("likes").on("value", snap=> likesSpan.textContent = snap.val() || 0);
 
-// Subscribe
+// --- SUBSCRIBE ---
 subscribeBtn.onclick = ()=> alert("Thank you for subscribing!");
 </script>
 </body>
