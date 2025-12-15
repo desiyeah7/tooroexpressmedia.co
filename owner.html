@@ -156,7 +156,7 @@ async function goLive(){
   localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
   liveVideo.srcObject = localStream;
 
-  // Listen for viewers continuously
+  // Listen for any new viewers
   viewersRef.on("child_added", async snap=>{
     const viewerId = snap.key;
     if(peerConnections[viewerId]) return;
