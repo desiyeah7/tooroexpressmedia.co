@@ -79,6 +79,13 @@ const firebaseConfig = {
   appId: "1:448193920796:web:019cf2b7295e0e7d7c04d9"
 };
 firebase.initializeApp(firebaseConfig);
+  const rtcConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" }
+  ]
+};
+
 
 const auth = firebase.auth();
 const db = firebase.database();
@@ -193,4 +200,5 @@ function clearBackground(){
 </script>
 </body>
 </html>
+
 
