@@ -77,7 +77,7 @@ db.ref("programTitle").on("value", snap=>{
 });
 
 // ===== WebRTC =====
-const pc = new RTCPeerConnection();
+const pc = new RTCPeerConnection(rtcConfig);
 
 // Listen for ICE candidates from owner
 db.ref(`webrtc/${viewerId}/candidates`).on("child_added", snap=>{
@@ -149,3 +149,4 @@ document.getElementById("subscribeBtn").onclick = ()=>{
 
 </body>
 </html>
+
