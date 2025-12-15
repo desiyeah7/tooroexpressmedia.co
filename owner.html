@@ -19,11 +19,12 @@ button.offline { background:#f44336; }
 #programTitle { white-space:nowrap; padding-left:100%; animation:scrollTitle 15s linear infinite; color:#b7ffb7; font-weight:bold; font-size:18px; }
 @keyframes scrollTitle { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 #liveIndicator { width:15px; height:15px; background:gray; border-radius:50%; display:inline-block; margin-left:10px; }
+#chatBox { margin-top:20px; text-align:left; width:90%; max-width:500px; }
+#messages { height:200px; overflow-y:auto; border:1px solid #555; padding:10px; margin-bottom:10px; border-radius:8px; background:#222; }
 </style>
 </head>
 <body>
 
-<!-- Login -->
 <div id="loginBox">
   <h2>Owner Login</h2>
   <input type="email" id="email" placeholder="Email" />
@@ -31,15 +32,12 @@ button.offline { background:#f44336; }
   <button onclick="login()">Login</button>
 </div>
 
-<!-- Owner Panel -->
 <div id="ownerPanel">
   <h1>Live Stream Dashboard <span id="liveIndicator"></span></h1>
-
   <button id="goLiveBtn" onclick="goLive()">🔴 Go Live</button>
   <button id="goOfflineBtn" class="offline" onclick="goOffline()" disabled>⚫ Go Offline</button>
   <button onclick="auth.signOut()">Logout</button>
 
-  <!-- Video Area -->
   <div class="video-wrapper">
     <div class="title-bar"><div id="programTitle">Program Title</div></div>
     <img src="mark.jpg" id="logoOverlay">
@@ -48,21 +46,26 @@ button.offline { background:#f44336; }
     <video id="liveVideo" autoplay playsinline muted></video>
   </div>
 
-  <!-- Program Title -->
+  <!-- Program title -->
   <div>
     <input id="titleInput" placeholder="Enter program title">
     <button onclick="setTitle()">Set Title</button>
   </div>
 
-  <!-- Background Media -->
+  <!-- Background media -->
   <div>
     <input type="file" accept="image/*,video/*" onchange="setBackground(this)">
     <label><input type="checkbox" id="bgSound"> Allow background video sound</label>
     <button onclick="clearBackground()">Remove Background</button>
   </div>
+
+  <!-- Chat messages -->
+  <div id="chatBox">
+    <h3>Viewer Messages</h3>
+    <div id="messages"></div>
+  </div>
 </div>
 
-<!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -79,32 +82,27 @@ const firebaseConfig = {
   appId: "1:448193920796:web:019cf2b7295e0e7d7c04d9"
 };
 firebase.initializeApp(firebaseConfig);
-  const rtcConfig = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" }
-  ]
-};
-
 
 const auth = firebase.auth();
 const db = firebase.database();
 const storage = firebase.storage();
 const viewersRef = db.ref("viewers");
 
+// STUN servers for cross-device
+const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
 let localStream = null;
 let isLive = false;
 const peerConnections = {};
-
 const liveVideo = document.getElementById("liveVideo");
 const bgVideo = document.getElementById("bgVideo");
 const bgImage = document.getElementById("bgImage");
 const liveIndicator = document.getElementById("liveIndicator");
+const messagesDiv = document.getElementById("messages");
 
 function login(){
-  auth.signInWithEmailAndPassword(
-    email.value, password.value
-  ).catch(e=>alert(e.message));
+  auth.signInWithEmailAndPassword(email.value,password.value)
+      .catch(e=>alert(e.message));
 }
 
 auth.onAuthStateChanged(user=>{
@@ -112,6 +110,49 @@ auth.onAuthStateChanged(user=>{
   ownerPanel.style.display = user ? "block" : "none";
 });
 
+function setTitle(){
+  db.ref("programTitle").set(titleInput.value);
+}
+
+function setBackground(input){
+  const file = input.files[0];
+  if(!file) return;
+  const allowSound = document.getElementById("bgSound").checked;
+  const url = URL.createObjectURL(file);
+  if(file.type.startsWith("video")){
+    bgVideo.src = url;
+    bgVideo.muted = !allowSound;
+    bgVideo.style.display = "block";
+    bgVideo.play();
+    bgImage.style.display = "none";
+  } else {
+    bgImage.src = url;
+    bgImage.style.display = "block";
+    bgVideo.style.display = "none";
+  }
+  const ref = storage.ref("background/current");
+  ref.put(file).then(()=>ref.getDownloadURL().then(remoteUrl=>{
+    db.ref("background").set({url:remoteUrl,type:file.type,sound:allowSound});
+  }));
+}
+
+function clearBackground(){
+  bgVideo.pause();
+  bgVideo.style.display = "none";
+  bgImage.style.display = "none";
+  db.ref("background").remove();
+}
+
+// ===== CHAT LISTEN =====
+db.ref("chat").on("child_added", snap=>{
+  const msg = snap.val();
+  const div = document.createElement("div");
+  div.textContent = msg.text;
+  messagesDiv.appendChild(div);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+});
+
+// ===== GO LIVE / OFFLINE =====
 async function goLive(){
   if(isLive) return;
   isLive = true;
@@ -123,27 +164,32 @@ async function goLive(){
   liveVideo.srcObject = localStream;
 
   viewersRef.on("child_added", async snap=>{
-    const id = snap.key;
-    if(peerConnections[id]) return;
-    const pc = new RTCPeerConnection(rtcConfig);
-    peerConnections[id] = pc;
-    localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
+    const viewerId = snap.key;
+    if(peerConnections[viewerId]) return;
 
-    pc.onicecandidate = e=>{
-      if(e.candidate)
-        db.ref(`webrtc/${id}/candidates`).push(JSON.stringify(e.candidate));
+    const pc = new RTCPeerConnection(rtcConfig);
+    peerConnections[viewerId] = pc;
+
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    pc.onicecandidate = event=>{
+      if(event.candidate){
+        db.ref(`webrtc/${viewerId}/candidates`).push(JSON.stringify(event.candidate));
+      }
     };
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    db.ref(`webrtc/${id}/offer`).set(JSON.stringify(offer));
+    db.ref(`webrtc/${viewerId}/offer`).set(JSON.stringify(offer));
 
-    db.ref(`webrtc/${id}/answer`).on("value", s=>{
-      if(s.val()) pc.setRemoteDescription(JSON.parse(s.val()));
+    db.ref(`webrtc/${viewerId}/answer`).on("value", async snap=>{
+      const answer = snap.val();
+      if(answer) await pc.setRemoteDescription(JSON.parse(answer));
     });
 
-    db.ref(`webrtc/${id}/candidatesViewer`).on("child_added", s=>{
-      pc.addIceCandidate(JSON.parse(s.val()));
+    db.ref(`webrtc/${viewerId}/candidatesViewer`).on("child_added", snap=>{
+      const candidate = JSON.parse(snap.val());
+      pc.addIceCandidate(candidate);
     });
   });
 }
@@ -162,43 +208,6 @@ function goOffline(){
   Object.values(peerConnections).forEach(pc=>pc.close());
   db.ref("webrtc").remove();
 }
-
-function setTitle(){
-  db.ref("programTitle").set(titleInput.value);
-}
-
-function setBackground(input){
-  const file = input.files[0];
-  if(!file) return;
-  const allowSound = document.getElementById("bgSound").checked;
-
-  const url = URL.createObjectURL(file);
-  if(file.type.startsWith("video")){
-    bgVideo.src = url;
-    bgVideo.muted = !allowSound;
-    bgVideo.style.display = "block";
-    bgVideo.play();
-    bgImage.style.display = "none";
-  } else {
-    bgImage.src = url;
-    bgImage.style.display = "block";
-    bgVideo.style.display = "none";
-  }
-
-  const ref = storage.ref("background/current");
-  ref.put(file).then(()=>ref.getDownloadURL().then(remoteUrl=>{
-    db.ref("background").set({url:remoteUrl, type:file.type, sound:allowSound});
-  }));
-}
-
-function clearBackground(){
-  bgVideo.pause();
-  bgVideo.style.display = "none";
-  bgImage.style.display = "none";
-  db.ref("background").remove();
-}
 </script>
 </body>
 </html>
-
-
