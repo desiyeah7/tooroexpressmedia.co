@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tooro Express Media - Live Viewer</title>
+<title>Viewer - Tooro Express Media</title>
 <style>
 body { margin:0; font-family: Arial,sans-serif; background:#111; color:#fff; text-align:center; }
 #logo { width:120px; margin:20px auto; display:block; }
@@ -28,12 +28,17 @@ button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
   <span id="liveIndicator" title="Live"></span>
 </div>
 
-<video id="viewerVideo" autoplay playsinline></video>
+<video id="viewerVideo" autoplay playsinline muted></video>
 
 <div id="chatBox">
   <div id="messages"></div>
   <input type="text" id="chatInput" placeholder="Type a message...">
   <button onclick="sendMessage()">Send</button>
+</div>
+
+<div>
+  <button id="likeBtn">Like 👍</button> <span id="likes">0</span>
+  <button id="subscribeBtn">Subscribe 🔔</button>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -52,42 +57,24 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// STUN
 const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-
 const viewerVideo = document.getElementById("viewerVideo");
 const programTitle = document.getElementById("programTitle");
 const liveIndicator = document.getElementById("liveIndicator");
 const messagesDiv = document.getElementById("messages");
 const chatInput = document.getElementById("chatInput");
+const likesSpan = document.getElementById("likes");
+const likeBtn = document.getElementById("likeBtn");
+const subscribeBtn = document.getElementById("subscribeBtn");
 
 const viewerId = Date.now().toString();
 const viewerRef = db.ref("viewers/" + viewerId);
 viewerRef.set(true);
 viewerRef.onDisconnect().remove();
 
-// Show program title
-db.ref("programTitle").on("value", snap=>{
-  programTitle.textContent = snap.val() || "Welcome to Tooro Express Media Live!";
-});
-
-// WebRTC
 const pc = new RTCPeerConnection(rtcConfig);
 
-db.ref(`webrtc/${viewerId}/candidates`).on("child_added", snap=>{
-  pc.addIceCandidate(JSON.parse(snap.val()));
-});
-
-pc.onicecandidate = event=>{
-  if(event.candidate){
-    db.ref(`webrtc/${viewerId}/candidatesViewer`).push(JSON.stringify(event.candidate));
-  }
-};
-
-pc.ontrack = event=>{
-  viewerVideo.srcObject = event.streams[0];
-};
-
+// WebRTC
 db.ref(`webrtc/${viewerId}/offer`).on("value", async snap=>{
   const offer = snap.val();
   if(!offer) return;
@@ -97,11 +84,18 @@ db.ref(`webrtc/${viewerId}/offer`).on("value", async snap=>{
   db.ref(`webrtc/${viewerId}/answer`).set(JSON.stringify(answer));
 });
 
-db.ref(`webrtc/${viewerId}/offer`).on("value", snap=>{
-  liveIndicator.style.background = snap.val() ? "red" : "gray";
+pc.onicecandidate = e=>{
+  if(e.candidate) db.ref(`webrtc/${viewerId}/candidatesViewer`).push(JSON.stringify(e.candidate));
+};
+
+pc.ontrack = e=> viewerVideo.srcObject = e.streams[0];
+db.ref(`webrtc/${viewerId}/candidates`).on("child_added", snap=>{
+  pc.addIceCandidate(JSON.parse(snap.val()));
 });
 
-// ===== Chat =====
+db.ref("programTitle").on("value", snap=> programTitle.textContent = snap.val() || "Welcome to Tooro Express Media Live!");
+
+// Chat
 function sendMessage(){
   const msg = chatInput.value.trim();
   if(!msg) return;
@@ -116,6 +110,18 @@ db.ref("chat").on("child_added", snap=>{
   messagesDiv.appendChild(div);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
+
+// Likes
+let liked = false;
+likeBtn.onclick = ()=>{
+  if(liked) return;
+  liked = true;
+  db.ref("likes").transaction(current=> (current||0)+1 );
+};
+db.ref("likes").on("value", snap=> likesSpan.textContent = snap.val() || 0);
+
+// Subscribe
+subscribeBtn.onclick = ()=> alert("Thank you for subscribing!");
 </script>
 </body>
 </html>
