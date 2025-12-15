@@ -67,8 +67,8 @@ const likesSpan = document.getElementById("likes");
 const likeBtn = document.getElementById("likeBtn");
 const subscribeBtn = document.getElementById("subscribeBtn");
 
-const viewerId = Date.now().toString();
-const viewerRef = db.ref("viewers/" + viewerId);
+const viewerRef = db.ref("viewers").push(); // generate stable viewer ID
+const viewerId = viewerRef.key;
 viewerRef.set(true);
 viewerRef.onDisconnect().remove();
 
@@ -93,6 +93,7 @@ db.ref(`webrtc/${viewerId}/candidates`).on("child_added", snap=>{
   pc.addIceCandidate(JSON.parse(snap.val()));
 });
 
+// Program title
 db.ref("programTitle").on("value", snap=> programTitle.textContent = snap.val() || "Welcome to Tooro Express Media Live!");
 
 // Chat
@@ -102,7 +103,6 @@ function sendMessage(){
   db.ref("chat").push({id:viewerId,text:msg});
   chatInput.value = "";
 }
-
 db.ref("chat").on("child_added", snap=>{
   const msg = snap.val();
   const div = document.createElement("div");
