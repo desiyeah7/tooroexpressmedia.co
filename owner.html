@@ -46,20 +46,17 @@ button.offline { background:#f44336; }
     <video id="liveVideo" autoplay playsinline muted></video>
   </div>
 
-  <!-- Program title -->
   <div>
     <input id="titleInput" placeholder="Enter program title">
     <button onclick="setTitle()">Set Title</button>
   </div>
 
-  <!-- Background media -->
   <div>
     <input type="file" accept="image/*,video/*" onchange="setBackground(this)">
     <label><input type="checkbox" id="bgSound"> Allow background video sound</label>
     <button onclick="clearBackground()">Remove Background</button>
   </div>
 
-  <!-- Chat messages -->
   <div id="chatBox">
     <h3>Viewer Messages</h3>
     <div id="messages"></div>
@@ -88,9 +85,7 @@ const db = firebase.database();
 const storage = firebase.storage();
 const viewersRef = db.ref("viewers");
 
-// STUN servers for cross-device
 const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-
 let localStream = null;
 let isLive = false;
 const peerConnections = {};
@@ -130,10 +125,8 @@ function setBackground(input){
     bgImage.style.display = "block";
     bgVideo.style.display = "none";
   }
-  const ref = storage.ref("background/current");
-  ref.put(file).then(()=>ref.getDownloadURL().then(remoteUrl=>{
-    db.ref("background").set({url:remoteUrl,type:file.type,sound:allowSound});
-  }));
+  storage.ref("background/current").put(file).then(()=>storage.ref("background/current").getDownloadURL()
+      .then(url=> db.ref("background").set({url:file.name,type:file.type,sound:allowSound})));
 }
 
 function clearBackground(){
@@ -143,7 +136,7 @@ function clearBackground(){
   db.ref("background").remove();
 }
 
-// ===== CHAT LISTEN =====
+// Chat listener
 db.ref("chat").on("child_added", snap=>{
   const msg = snap.val();
   const div = document.createElement("div");
@@ -152,7 +145,7 @@ db.ref("chat").on("child_added", snap=>{
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
 
-// ===== GO LIVE / OFFLINE =====
+// Go Live / Offline
 async function goLive(){
   if(isLive) return;
   isLive = true;
@@ -163,6 +156,7 @@ async function goLive(){
   localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
   liveVideo.srcObject = localStream;
 
+  // Listen for viewers continuously
   viewersRef.on("child_added", async snap=>{
     const viewerId = snap.key;
     if(peerConnections[viewerId]) return;
@@ -172,9 +166,9 @@ async function goLive(){
 
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-    pc.onicecandidate = event=>{
-      if(event.candidate){
-        db.ref(`webrtc/${viewerId}/candidates`).push(JSON.stringify(event.candidate));
+    pc.onicecandidate = e=>{
+      if(e.candidate){
+        db.ref(`webrtc/${viewerId}/candidates`).push(JSON.stringify(e.candidate));
       }
     };
 
@@ -182,14 +176,12 @@ async function goLive(){
     await pc.setLocalDescription(offer);
     db.ref(`webrtc/${viewerId}/offer`).set(JSON.stringify(offer));
 
-    db.ref(`webrtc/${viewerId}/answer`).on("value", async snap=>{
-      const answer = snap.val();
-      if(answer) await pc.setRemoteDescription(JSON.parse(answer));
+    db.ref(`webrtc/${viewerId}/answer`).on("value", snap=>{
+      if(snap.val()) pc.setRemoteDescription(JSON.parse(snap.val()));
     });
 
     db.ref(`webrtc/${viewerId}/candidatesViewer`).on("child_added", snap=>{
-      const candidate = JSON.parse(snap.val());
-      pc.addIceCandidate(candidate);
+      pc.addIceCandidate(JSON.parse(snap.val()));
     });
   });
 }
