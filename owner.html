@@ -3,72 +3,50 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Owner Dashboard - Tooro Express Media</title>
+<title>Viewer - Tooro Express Media</title>
 <style>
-body { margin:0; font-family: Arial,sans-serif; background:#111; color:#fff; }
-#loginBox { text-align:center; margin-top:50px; }
-#ownerPanel { display:none; padding:20px; max-width:900px; margin:auto; }
-input, button { padding:10px; margin:5px; border-radius:5px; border:none; }
-button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
-button.offline { background:#f44336; }
-.video-wrapper { position:relative; width:100%; aspect-ratio:16/9; background:black; overflow:hidden; border-radius:12px; margin-top:20px; }
-.bg-media { position:absolute; width:100%; height:100%; object-fit:cover; z-index:1; display:none; }
-#liveVideo { position:absolute; bottom:15px; right:15px; width:25%; border-radius:10px; z-index:5; border:2px solid #4caf50; background:black; }
-#logoOverlay { position:absolute; top:10px; left:10px; width:70px; z-index:6; }
-.title-bar { position:absolute; top:0; width:100%; background:rgba(0,0,0,0.65); z-index:12; height:40px; display:flex; align-items:center; }
-#programTitle { white-space:nowrap; padding-left:100%; animation:scrollTitle 15s linear infinite; color:#b7ffb7; font-weight:bold; font-size:18px; }
+body { margin:0; font-family: Arial,sans-serif; background:#111; color:#fff; text-align:center; }
+#logo { width:120px; margin:20px auto; display:block; }
+#programTitleWrapper { width:90%; max-width:800px; background:#1976d2; border-radius:10px; padding:10px; margin:10px auto; overflow:hidden; position:relative; }
+#programTitle { display:inline-block; padding-left:100%; white-space:nowrap; font-size:20px; font-weight:bold; color:#fff; animation:scrollTitle 15s linear infinite; }
 @keyframes scrollTitle { from { transform:translateX(0); } to { transform:translateX(-100%); } }
-#liveIndicator { width:15px; height:15px; background:gray; border-radius:50%; display:inline-block; margin-left:10px; }
-#chatBox { margin-top:20px; text-align:left; width:90%; max-width:500px; }
+#liveIndicator { width:15px; height:15px; background:gray; border-radius:50%; display:inline-block; margin-left:10px; vertical-align:middle; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{ transform:scale(1);}50%{transform:scale(1.3);} }
+#viewerVideo { width:90%; max-width:900px; margin:20px auto; border-radius:12px; border:2px solid #4caf50; background:black; }
+#chatBox { width:90%; max-width:500px; margin:20px auto; text-align:left; }
 #messages { height:200px; overflow-y:auto; border:1px solid #555; padding:10px; margin-bottom:10px; border-radius:8px; background:#222; }
+input, button { padding:8px; margin:5px; border-radius:5px; border:none; }
+button { cursor:pointer; background:#4caf50; color:#fff; font-weight:bold; }
 </style>
 </head>
 <body>
 
-<div id="loginBox">
-  <h2>Owner Login</h2>
-  <input type="email" id="email" placeholder="Email" />
-  <input type="password" id="password" placeholder="Password" />
-  <button onclick="login()">Login</button>
+<img src="mark.jpg" id="logo" alt="Tooro Express Media Logo">
+
+<div id="programTitleWrapper">
+  <span id="programTitle">Welcome to Tooro Express Media Live!</span>
+  <span id="liveIndicator" title="Live"></span>
 </div>
 
-<div id="ownerPanel">
-  <h1>Live Stream Dashboard <span id="liveIndicator"></span></h1>
-  <button id="goLiveBtn" onclick="goLive()">🔴 Go Live</button>
-  <button id="goOfflineBtn" class="offline" onclick="goOffline()" disabled>⚫ Go Offline</button>
-  <button onclick="auth.signOut()">Logout</button>
+<video id="viewerVideo" autoplay playsinline></video> 
 
-  <div class="video-wrapper">
-    <div class="title-bar"><div id="programTitle">Program Title</div></div>
-    <img src="mark.jpg" id="logoOverlay">
-    <img id="bgImage" class="bg-media">
-    <video id="bgVideo" class="bg-media" loop></video>
-    <video id="liveVideo" autoplay playsinline muted></video>
-  </div>
+<div id="chatBox">
+  <div id="messages"></div>
+  <input type="text" id="chatInput" placeholder="Type a message...">
+  <button onclick="sendMessage()">Send</button>
+</div>
 
-  <div>
-    <input id="titleInput" placeholder="Enter program title">
-    <button onclick="setTitle()">Set Title</button>
-  </div>
-
-  <div>
-    <input type="file" accept="image/*,video/*" onchange="setBackground(this)">
-    <label><input type="checkbox" id="bgSound"> Allow background video sound</label>
-    <button onclick="clearBackground()">Remove Background</button>
-  </div>
-
-  <div id="chatBox">
-    <h3>Viewer Messages</h3>
-    <div id="messages"></div>
-  </div>
+<div>
+  <button id="likeBtn">Like 👍</button> <span id="likes">0</span>
+  <button id="subscribeBtn">Subscribe 🔔</button>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 
 <script>
+// --- CONFIG & INITIALIZATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyDyIloGwy7UzZUAqodgZNvNCiBou02RbGQ",
   authDomain: "livestream-trial.firebaseapp.com",
@@ -79,127 +57,122 @@ const firebaseConfig = {
   appId: "1:448193920796:web:019cf2b7295e0e7d7c04d9"
 };
 firebase.initializeApp(firebaseConfig);
-
-const auth = firebase.auth();
 const db = firebase.database();
 const storage = firebase.storage();
-const viewersRef = db.ref("viewers");
 
+// --- DOM ELEMENTS & RTC VARIABLES ---
 const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-let localStream = null;
-let isLive = false;
-const peerConnections = {};
-const liveVideo = document.getElementById("liveVideo");
-const bgVideo = document.getElementById("bgVideo");
-const bgImage = document.getElementById("bgImage");
+const viewerVideo = document.getElementById("viewerVideo");
+const programTitle = document.getElementById("programTitle");
 const liveIndicator = document.getElementById("liveIndicator");
 const messagesDiv = document.getElementById("messages");
+const chatInput = document.getElementById("chatInput");
+const likesSpan = document.getElementById("likes");
+const likeBtn = document.getElementById("likeBtn");
+const subscribeBtn = document.getElementById("subscribeBtn");
+const pc = new RTCPeerConnection(rtcConfig);
 
-function login(){
-  auth.signInWithEmailAndPassword(email.value,password.value)
-      .catch(e=>alert(e.message));
-}
+// --- VIEWER ID & SETUP ---
+// Generates a unique viewer ID and registers it
+const viewerRef = db.ref("viewers").push(); 
+const viewerId = viewerRef.key;
+viewerRef.set(true);
+viewerRef.onDisconnect().remove();
 
-auth.onAuthStateChanged(user=>{
-  loginBox.style.display = user ? "none" : "block";
-  ownerPanel.style.display = user ? "block" : "none";
+// --- LIVE STATUS CHECK ---
+db.ref("isLive").on("value", snap => {
+    const isLive = snap.val();
+    liveIndicator.style.background = isLive ? "red" : "gray";
+    liveIndicator.title = isLive ? "Live" : "Offline";
 });
 
-function setTitle(){
-  db.ref("programTitle").set(titleInput.value);
-}
+// --- PROGRAM TITLE & BACKGROUND ---
+db.ref("programTitle").on("value", snap=> programTitle.textContent = snap.val() || "Welcome to Tooro Express Media Live!");
 
-function setBackground(input){
-  const file = input.files[0];
-  if(!file) return;
-  const allowSound = document.getElementById("bgSound").checked;
-  const url = URL.createObjectURL(file);
-  if(file.type.startsWith("video")){
-    bgVideo.src = url;
-    bgVideo.muted = !allowSound;
-    bgVideo.style.display = "block";
-    bgVideo.play();
-    bgImage.style.display = "none";
-  } else {
-    bgImage.src = url;
-    bgImage.style.display = "block";
-    bgVideo.style.display = "none";
+// You may want to add logic here to display the background image/video
+// based on db.ref("background") similar to how the owner side handles it.
+
+// --- WebRTC (SIGNALING) ---
+
+// 1. Listen for OFFER from the owner
+db.ref(`webrtc/${viewerId}/offer`).on("value", async snap=>{
+  const offer = snap.val();
+  if(!offer) return;
+
+  // A. Set remote description (Offer)
+  await pc.setRemoteDescription(JSON.parse(offer));
+
+  // B. Create Answer and set local description
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+
+  // C. Send Answer back to the owner
+  db.ref(`webrtc/${viewerId}/answer`).set(JSON.stringify(answer));
+});
+
+// 2. Send Viewer's ICE Candidates to the Owner
+pc.onicecandidate = e=>{
+  // Viewer candidates go to /webrtc/{viewerId}/candidatesViewer
+  if(e.candidate) db.ref(`webrtc/${viewerId}/candidatesViewer`).push(JSON.stringify(e.candidate));
+};
+
+// 3. Receive Stream Tracks from the Owner
+pc.ontrack = e => {
+    viewerVideo.srcObject = e.streams[0];
+    // Attempt to play immediately (requires no 'muted' attribute in HTML)
+    viewerVideo.play().catch(error => {
+        console.warn("Autoplay was blocked. Viewer may need to interact with the page.", error);
+    });
+};
+
+// 4. Listen for Owner's ICE Candidates
+db.ref(`webrtc/${viewerId}/candidates`).on("child_added", snap=>{
+  try {
+    pc.addIceCandidate(JSON.parse(snap.val()));
+  } catch(e) {
+    console.error("Error adding owner candidate:", e);
   }
-  storage.ref("background/current").put(file).then(()=>storage.ref("background/current").getDownloadURL()
-      .then(url=> db.ref("background").set({url:file.name,type:file.type,sound:allowSound})));
+});
+
+
+// --- CHAT FUNCTIONS ---
+function sendMessage(){
+  // Added a placeholder name for the viewer, as you didn't include auth
+  const viewerName = `Viewer-${viewerId.substring(0, 4)}`;
+  const msg = chatInput.value.trim();
+  if(!msg) return;
+  
+  db.ref("chat").push({
+    id: viewerId,
+    name: viewerName,
+    text: msg,
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  });
+  chatInput.value = "";
 }
 
-function clearBackground(){
-  bgVideo.pause();
-  bgVideo.style.display = "none";
-  bgImage.style.display = "none";
-  db.ref("background").remove();
-}
-
-// Chat listener
 db.ref("chat").on("child_added", snap=>{
   const msg = snap.val();
   const div = document.createElement("div");
-  div.textContent = msg.text;
+  // Updated to show a name/ID if available
+  const senderInfo = msg.name ? `[${msg.name}]: ` : '';
+  div.textContent = senderInfo + msg.text;
   messagesDiv.appendChild(div);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 });
 
-// Go Live / Offline
-async function goLive(){
-  if(isLive) return;
-  isLive = true;
-  goLiveBtn.disabled = true;
-  goOfflineBtn.disabled = false;
-  liveIndicator.style.background = "red";
+// --- LIKES ---
+let liked = false;
+likeBtn.onclick = ()=>{
+  // Prevents spamming the like button
+  if(liked) return; 
+  liked = true;
+  db.ref("likes").transaction(current=> (current||0)+1 );
+};
+db.ref("likes").on("value", snap=> likesSpan.textContent = snap.val() || 0);
 
-  localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
-  liveVideo.srcObject = localStream;
-
-  // Listen for any new viewers
-  viewersRef.on("child_added", async snap=>{
-    const viewerId = snap.key;
-    if(peerConnections[viewerId]) return;
-
-    const pc = new RTCPeerConnection(rtcConfig);
-    peerConnections[viewerId] = pc;
-
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-    pc.onicecandidate = e=>{
-      if(e.candidate){
-        db.ref(`webrtc/${viewerId}/candidates`).push(JSON.stringify(e.candidate));
-      }
-    };
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    db.ref(`webrtc/${viewerId}/offer`).set(JSON.stringify(offer));
-
-    db.ref(`webrtc/${viewerId}/answer`).on("value", snap=>{
-      if(snap.val()) pc.setRemoteDescription(JSON.parse(snap.val()));
-    });
-
-    db.ref(`webrtc/${viewerId}/candidatesViewer`).on("child_added", snap=>{
-      pc.addIceCandidate(JSON.parse(snap.val()));
-    });
-  });
-}
-
-function goOffline(){
-  isLive = false;
-  goLiveBtn.disabled = false;
-  goOfflineBtn.disabled = true;
-  liveIndicator.style.background = "gray";
-
-  if(localStream){
-    localStream.getTracks().forEach(t=>t.stop());
-    liveVideo.srcObject = null;
-  }
-
-  Object.values(peerConnections).forEach(pc=>pc.close());
-  db.ref("webrtc").remove();
-}
+// --- SUBSCRIBE ---
+subscribeBtn.onclick = ()=> alert("Thank you for subscribing!");
 </script>
 </body>
 </html>
